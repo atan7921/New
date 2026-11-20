@@ -1,0 +1,610 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>智慧溫室模擬</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: 3D stage on the left, readouts + temperature history + controls in a side panel; stacks on phones. */
+:root {
+  --bg: #0b1514;
+  --surface: #122220;
+  --line: #24403b;
+  --fg: #e4f1ed;
+  --muted: #8fada5;
+  --leaf: #7bd88f;
+  --cool: #62c7e6;
+  --hot: #ff8f4d;
+  --danger: #ff5d4d;
+  --font: "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", "Heiti TC", system-ui, sans-serif;
+  color-scheme: dark;
+}
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  box-sizing: border-box;
+}
+* { box-sizing: border-box; }
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.stage {
+  position: relative;
+  min-width: 0;
+  height: min(80vh, 760px);
+  min-height: 380px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0d1716;
+  border: 1px solid var(--line);
+}
+#gl { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#gl:active { cursor: grabbing; }
+.hint {
+  position: absolute; left: 12px; bottom: 12px;
+  font-size: 12px; color: var(--muted);
+  background: rgba(11, 21, 20, .72); padding: 6px 10px; border-radius: 8px;
+}
+.badge {
+  position: absolute; left: 12px; top: 12px;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(11, 21, 20, .78);
+  border: 1px solid var(--line);
+  padding: 8px 12px; border-radius: 10px;
+  font-size: 13px; font-weight: 600;
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--leaf); box-shadow: 0 0 0 3px rgba(123, 216, 143, .2); }
+.badge.on .dot { background: var(--hot); box-shadow: 0 0 0 3px rgba(255, 143, 77, .25); }
+.nogl { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
+
+.panel { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+h1 { margin: 0 0 6px; font-size: 22px; line-height: 1.25; text-wrap: balance; }
+.sub { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.reads { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+.lab { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+.big { font-size: 44px; line-height: 1.05; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.big small { font-size: 18px; font-weight: 500; color: var(--muted); margin-left: 2px; }
+.mid { font-size: 28px; line-height: 1.2; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.mid small { font-size: 14px; color: var(--muted); font-weight: 500; }
+.rule { margin: 10px 0 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.chart-wrap { padding-bottom: 10px; }
+#chart { display: block; width: 100%; height: 120px; margin-top: 8px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+button {
+  font: inherit; color: var(--fg); background: transparent;
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; cursor: pointer;
+}
+button[aria-pressed="true"] { background: var(--leaf); color: #082015; border-color: var(--leaf); font-weight: 700; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--cool); outline-offset: 2px; }
+.ctl { margin-top: 14px; transition: opacity .2s; }
+.ctl.off { opacity: .4; }
+.ctl label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
+.ctl output { font-variant-numeric: tabular-nums; color: var(--leaf); font-weight: 600; }
+input[type=range] { width: 100%; accent-color: var(--leaf); }
+.plant { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.bar { height: 8px; background: #0b1514; border-radius: 6px; overflow: hidden; margin-top: 8px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--leaf); transition: background .3s; }
+.plant button { white-space: nowrap; padding: 7px 12px; }
+.status { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 1.4em; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: min(62vh, 520px); min-height: 340px; }
+}
+</style>
+
+<div class="app">
+  <section class="stage" id="stage">
+    <canvas id="gl" aria-label="智慧溫室 3D 場景，可拖曳旋轉"></canvas>
+    <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">馬達 M1 停止</span></div>
+    <div class="hint">拖曳旋轉　滾輪或雙指縮放</div>
+  </section>
+
+  <aside class="panel">
+    <header>
+      <h1>智慧溫室模擬</h1>
+      <p class="sub">DHT11 量到的溫度超過 30°C 時，馬達 M1 轉動散熱，降到 28°C 以下才停止。</p>
+    </header>
+
+    <div class="card">
+      <div class="reads">
+        <div>
+          <div class="lab">溫度 DHT11</div>
+          <div class="big" id="tVal">30.8<small>°C</small></div>
+        </div>
+        <div>
+          <div class="lab">濕度</div>
+          <div class="mid" id="hVal">60<small> %</small></div>
+          <div class="lab" style="margin-top:10px">風扇 M1</div>
+          <div class="mid" id="fVal" style="font-size:20px">運轉中</div>
+        </div>
+      </div>
+      <p class="rule">T &gt; 30°C 啟動，T &lt; 28°C 關閉。兩個門檻之間維持原狀，馬達不會頻繁開關。</p>
+    </div>
+
+    <div class="card chart-wrap">
+      <div class="lab">最近 40 秒溫度（橘色底為風扇運轉）</div>
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="seg" role="group" aria-label="溫度來源">
+        <button id="modeAuto" aria-pressed="true">自動模擬</button>
+        <button id="modeManual" aria-pressed="false">手動設定溫度</button>
+      </div>
+      <div class="ctl" id="ctlAuto">
+        <label for="amb">日照強度（棚外環境溫度）<output id="ambOut">35.0 °C</output></label>
+        <input id="amb" type="range" min="24" max="40" step="0.5" value="35">
+      </div>
+      <div class="ctl off" id="ctlMan">
+        <label for="man">手動溫度<output id="manOut">31.0 °C</output></label>
+        <input id="man" type="range" min="20" max="40" step="0.1" value="31" disabled>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="plant">
+        <div style="flex:1; min-width:0">
+          <div class="lab">植株生長</div>
+          <div class="bar"><i id="growBar"></i></div>
+        </div>
+        <button id="replant">重新栽種</button>
+      </div>
+      <div class="status" id="plantStatus"></div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var canvas = document.getElementById('gl');
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- state ---------- */
+  var S = {
+    mode: 'auto', ambient: 35, manual: 31, temp: 30.8, hum: 60,
+    fanOn: true, fanSpeed: 0.6, growth: 0.72, stress: 0, t: 0
+  };
+  var ON_T = 30, OFF_T = 28;
+
+  /* ---------- UI refs ---------- */
+  var $ = function (id) { return document.getElementById(id); };
+  var badge = $('badge'), badgeText = $('badgeText'), tVal = $('tVal'), hVal = $('hVal'), fVal = $('fVal');
+  var growBar = $('growBar'), plantStatus = $('plantStatus');
+  var modeAuto = $('modeAuto'), modeManual = $('modeManual');
+  var amb = $('amb'), man = $('man'), ambOut = $('ambOut'), manOut = $('manOut');
+  var ctlAuto = $('ctlAuto'), ctlMan = $('ctlMan');
+
+  function setMode(m) {
+    S.mode = m;
+    modeAuto.setAttribute('aria-pressed', m === 'auto');
+    modeManual.setAttribute('aria-pressed', m === 'manual');
+    ctlAuto.classList.toggle('off', m !== 'auto');
+    ctlMan.classList.toggle('off', m !== 'manual');
+    amb.disabled = m !== 'auto';
+    man.disabled = m !== 'manual';
+    if (m === 'manual') { S.manual = S.temp; man.value = S.temp.toFixed(1); manOut.textContent = S.temp.toFixed(1) + ' °C'; }
+  }
+  modeAuto.onclick = function () { setMode('auto'); };
+  modeManual.onclick = function () { setMode('manual'); };
+  amb.oninput = function () { S.ambient = +amb.value; ambOut.textContent = S.ambient.toFixed(1) + ' °C'; };
+  man.oninput = function () { S.manual = +man.value; manOut.textContent = S.manual.toFixed(1) + ' °C'; };
+  $('replant').onclick = function () { S.growth = 0.5; };
+
+  /* ---------- history chart ---------- */
+  var cv = $('chart'), cx = cv.getContext('2d');
+  var MAX = 400, hist = [];
+  function sizeChart() {
+    var d = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(cv.clientWidth * d);
+    cv.height = Math.round(cv.clientHeight * d);
+    cx.setTransform(d, 0, 0, d, 0, 0);
+  }
+  function drawChart() {
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w) return;
+    cx.clearRect(0, 0, w, h);
+    var l = 28, r = 6, tp = 8, b = 6, yMin = 22, yMax = 38;
+    var X = function (i) { return l + (i + (MAX - hist.length)) / (MAX - 1) * (w - l - r); };
+    var Y = function (v) { return tp + (1 - (v - yMin) / (yMax - yMin)) * (h - tp - b); };
+    cx.font = '11px system-ui, sans-serif';
+    cx.textBaseline = 'middle';
+    // fan-on shading
+    cx.fillStyle = 'rgba(255,143,77,0.16)';
+    var start = -1;
+    for (var i = 0; i <= hist.length; i++) {
+      var on = i < hist.length && hist[i].f;
+      if (on && start < 0) start = i;
+      if (!on && start >= 0) { cx.fillRect(X(start), tp, X(i - 1) - X(start) + 1, h - tp - b); start = -1; }
+    }
+    // thresholds
+    [[30, '#ff8f4d'], [28, '#62c7e6']].forEach(function (a) {
+      cx.strokeStyle = a[1]; cx.fillStyle = a[1]; cx.lineWidth = 1;
+      cx.setLineDash([4, 4]);
+      cx.beginPath(); cx.moveTo(l, Y(a[0])); cx.lineTo(w - r, Y(a[0])); cx.stroke();
+      cx.setLineDash([]);
+      cx.fillText(a[0], 2, Y(a[0]));
+    });
+    cx.fillStyle = '#8fada5';
+    cx.fillText('36', 2, Y(36)); cx.fillText('24', 2, Y(24));
+    // temp line
+    if (hist.length > 1) {
+      cx.strokeStyle = '#7bd88f'; cx.lineWidth = 2; cx.lineJoin = 'round';
+      cx.beginPath();
+      hist.forEach(function (p, i) {
+        var v = Math.max(yMin, Math.min(yMax, p.T));
+        if (i === 0) cx.moveTo(X(i), Y(v)); else cx.lineTo(X(i), Y(v));
+      });
+      cx.stroke();
+      var last = hist[hist.length - 1];
+      cx.fillStyle = '#e4f1ed';
+      cx.beginPath(); cx.arc(X(hist.length - 1), Y(Math.max(yMin, Math.min(yMax, last.T))), 3.5, 0, 6.283); cx.fill();
+    }
+  }
+
+  /* ---------- WebGL ---------- */
+  var renderer;
+  try {
+    if (!window.THREE) throw new Error('three');
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  } catch (e) {
+    var m = document.createElement('div');
+    m.className = 'nogl';
+    m.textContent = '此瀏覽器無法顯示 3D 場景，仍可使用右側的溫度與風扇模擬。';
+    stage.appendChild(m);
+    renderer = null;
+  }
+
+  var scene, camera, sun, sunBall, sunGlow, innerLight, leafMat, bladeGroup, plants = [], fruits = [], air, airN = 90, airData = [], ledMat;
+  var THREE_ = window.THREE;
+
+  if (renderer) {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setClearColor(0x0d1716);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0d1716, 20, 46);
+    camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+
+    scene.add(new THREE.HemisphereLight(0xbfe8ff, 0x1a2a22, 0.6));
+    sun = new THREE.DirectionalLight(0xfff0cf, 1.2);
+    sun.position.set(7, 11, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    var sc = sun.shadow.camera; sc.left = -9; sc.right = 9; sc.top = 9; sc.bottom = -9; sc.near = 1; sc.far = 30;
+    scene.add(sun);
+    innerLight = new THREE.PointLight(0xdff6ff, 0.55, 14);
+    innerLight.position.set(0, 2.8, 0);
+    scene.add(innerLight);
+
+    /* ground and soil bed */
+    var ground = new THREE.Mesh(new THREE.CircleGeometry(30, 48), new THREE.MeshStandardMaterial({ color: 0x14302a, roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    var bed = new THREE.Mesh(new THREE.BoxGeometry(7.6, 0.1, 5.6), new THREE.MeshStandardMaterial({ color: 0x3b2c22, roughness: 1 }));
+    bed.position.y = 0.05; bed.receiveShadow = true; scene.add(bed);
+
+    /* frame */
+    var frameMat = new THREE.MeshStandardMaterial({ color: 0xcfe9e0, roughness: 0.5, metalness: 0.3 });
+    var up = new THREE.Vector3(0, 1, 0);
+    function bar(a, b, r) {
+      var A = new THREE.Vector3(a[0], a[1], a[2]), B = new THREE.Vector3(b[0], b[1], b[2]);
+      var len = A.distanceTo(B);
+      var m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), frameMat);
+      m.position.copy(A).add(B).multiplyScalar(0.5);
+      m.quaternion.setFromUnitVectors(up, B.clone().sub(A).normalize());
+      m.castShadow = true;
+      scene.add(m);
+    }
+    var W = 4, D = 3, H = 2.4, P = 3.6, R = 0.045;
+    [[-W, -D], [W, -D], [W, D], [-W, D]].forEach(function (c) { bar([c[0], 0, c[1]], [c[0], H, c[1]], R); });
+    bar([-W, 0, 0], [-W, P, 0], R); bar([W, 0, 0], [W, P, 0], R);
+    [[-W, -D, W, -D], [W, -D, W, D], [W, D, -W, D], [-W, D, -W, -D]].forEach(function (s) {
+      bar([s[0], 0.02, s[1]], [s[2], 0.02, s[3]], R); bar([s[0], H, s[1]], [s[2], H, s[3]], R);
+    });
+    bar([-W, P, 0], [W, P, 0], R * 1.2);
+    [-4, -2, 0, 2, 4].forEach(function (x) {
+      bar([x, H, D], [x, P, 0], R); bar([x, P, 0], [x, H, -D], R);
+    });
+    [-2, 0, 2].forEach(function (x) { bar([x, 0, D], [x, H, D], R); bar([x, 0, -D], [x, H, -D], R); });
+
+    /* glass */
+    var glass = new THREE.MeshPhysicalMaterial({ color: 0xbfeadf, transparent: true, opacity: 0.13, roughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
+    function pane(w, h, x, y, z, rx, ry) {
+      var m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), glass);
+      m.position.set(x, y, z); m.rotation.set(rx || 0, ry || 0, 0); scene.add(m); return m;
+    }
+    pane(8, H, 0, H / 2, D); pane(8, H, 0, H / 2, -D);
+    pane(6, H, -W, H / 2, 0, 0, Math.PI / 2); pane(6, H, W, H / 2, 0, 0, Math.PI / 2);
+    var slope = Math.sqrt(D * D + (P - H) * (P - H)), ang = Math.atan((P - H) / D);
+    pane(8, slope, 0, (H + P) / 2, D / 2, -Math.PI / 2 + ang, 0);
+    pane(8, slope, 0, (H + P) / 2, -D / 2, -Math.PI / 2 - ang, 0);
+    var tri = new THREE.Shape(); tri.moveTo(-D, H); tri.lineTo(D, H); tri.lineTo(0, P); tri.closePath();
+    [-W, W].forEach(function (x) {
+      var g = new THREE.Mesh(new THREE.ShapeGeometry(tri), glass);
+      g.rotation.y = Math.PI / 2; g.position.x = x; scene.add(g);
+    });
+
+    /* labels */
+    function label(text, w) {
+      var c = document.createElement('canvas'); c.width = 256; c.height = 80;
+      var g = c.getContext('2d');
+      g.fillStyle = 'rgba(11,21,20,0.85)'; g.fillRect(0, 0, 256, 80);
+      g.strokeStyle = '#3b6a60'; g.lineWidth = 3; g.strokeRect(2, 2, 252, 76);
+      g.fillStyle = '#e4f1ed'; g.font = '600 32px "PingFang TC","Microsoft JhengHei","Noto Sans TC",sans-serif';
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 42);
+      var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+      sp.scale.set(w, w * 80 / 256, 1); sp.renderOrder = 10; return sp;
+    }
+
+    /* plants */
+    var potMat = new THREE.MeshStandardMaterial({ color: 0xb4643c, roughness: 0.8 });
+    var stemMat = new THREE.MeshStandardMaterial({ color: 0x4d9a4f, roughness: 0.8 });
+    leafMat = new THREE.MeshStandardMaterial({ color: 0x3f9d4a, roughness: 0.7, side: THREE.DoubleSide });
+    var fruitMat = new THREE.MeshStandardMaterial({ color: 0xe0432f, roughness: 0.4 });
+    var stemGeo = new THREE.CylinderGeometry(0.03, 0.05, 1.1, 8); stemGeo.translate(0, 0.55, 0);
+    var leafGeo = new THREE.SphereGeometry(0.24, 12, 8);
+    var fruitGeo = new THREE.SphereGeometry(0.09, 10, 8);
+    var potGeo = new THREE.CylinderGeometry(0.29, 0.2, 0.34, 18);
+    for (var ix = 0; ix < 4; ix++) {
+      for (var iz = 0; iz < 3; iz++) {
+        var pg = new THREE.Group();
+        pg.position.set(-2.4 + ix * 1.6, 0, -1.5 + iz * 1.5);
+        var pot = new THREE.Mesh(potGeo, potMat); pot.position.y = 0.27; pot.castShadow = true; pot.receiveShadow = true; pg.add(pot);
+        var root = new THREE.Group(); root.position.y = 0.4; pg.add(root);
+        var stem = new THREE.Mesh(stemGeo, stemMat); stem.castShadow = true; root.add(stem);
+        var leaves = [];
+        for (var k = 0; k < 7; k++) {
+          var pv = new THREE.Group(); pv.position.y = 0.2 + k * 0.14; pv.rotation.y = k * 2.4 + ix + iz;
+          var tilt = new THREE.Group(); pv.add(tilt);
+          var lf = new THREE.Mesh(leafGeo, leafMat);
+          lf.scale.set(1, 0.12, 0.55); lf.position.x = 0.22 + (k < 3 ? 0.06 : 0); lf.castShadow = true;
+          tilt.add(lf); root.add(pv); leaves.push(tilt);
+        }
+        var fr = new THREE.Group();
+        for (var q = 0; q < 3; q++) {
+          var f = new THREE.Mesh(fruitGeo, fruitMat);
+          f.position.set(Math.cos(q * 2.1) * 0.12, 0.62 + q * 0.08, Math.sin(q * 2.1) * 0.12); fr.add(f);
+        }
+        fr.visible = false; root.add(fr);
+        scene.add(pg);
+        plants.push({ root: root, leaves: leaves, fruit: fr, phase: Math.random() * 6.28 });
+      }
+    }
+
+    /* DHT11 sensor */
+    var sensor = new THREE.Group(); sensor.position.set(-1.2, 0, -2.6);
+    var post = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.4, 8), new THREE.MeshStandardMaterial({ color: 0x8a949a }));
+    post.position.y = 0.7; sensor.add(post);
+    var sBody = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.5, 0.16), new THREE.MeshStandardMaterial({ color: 0x2f7de1, roughness: 0.5 }));
+    sBody.position.y = 1.6; sBody.castShadow = true; sensor.add(sBody);
+    var holeMat = new THREE.MeshBasicMaterial({ color: 0x143a78 });
+    for (var hx = 0; hx < 3; hx++) for (var hy = 0; hy < 4; hy++) {
+      var hole = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.01), holeMat);
+      hole.position.set(-0.08 + hx * 0.08, 1.7 - hy * 0.08, 0.085); sensor.add(hole);
+    }
+    var lbl1 = label('DHT11', 1.1); lbl1.position.set(0, 2.15, 0); sensor.add(lbl1);
+    scene.add(sensor);
+
+    /* controller box */
+    var ctrl = new THREE.Group(); ctrl.position.set(-3.3, 0, -1.6);
+    var crate = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.4, 0.7), new THREE.MeshStandardMaterial({ color: 0x6d5139, roughness: 0.9 }));
+    crate.position.y = 0.3; crate.castShadow = true; ctrl.add(crate);
+    var pcb = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.05, 0.6), new THREE.MeshStandardMaterial({ color: 0x1b7a63 }));
+    pcb.position.y = 0.525; ctrl.add(pcb);
+    var chip = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.14), new THREE.MeshStandardMaterial({ color: 0x15191a }));
+    chip.position.set(-0.1, 0.575, -0.1); ctrl.add(chip);
+    ledMat = new THREE.MeshStandardMaterial({ color: 0x3ddc84, emissive: 0x3ddc84, emissiveIntensity: 1.2 });
+    var led = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), ledMat);
+    led.position.set(0.25, 0.58, 0.18); ctrl.add(led);
+    var lbl2 = label('Arduino', 1.2); lbl2.position.set(0, 1.15, 0); ctrl.add(lbl2);
+    scene.add(ctrl);
+
+    function wire(pts, color) {
+      var curve = new THREE.CatmullRomCurve3(pts.map(function (p) { return new THREE.Vector3(p[0], p[1], p[2]); }));
+      scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 28, 0.016, 6, false), new THREE.MeshStandardMaterial({ color: color })));
+    }
+    wire([[-1.2, 1.35, -2.52], [-1.25, 0.2, -2.45], [-2.3, 0.14, -2.2], [-3.0, 0.56, -1.8]], 0xe6e6e6);
+    wire([[-3.5, 0.56, -1.5], [-3.75, 0.8, -1.0], [-3.85, 1.45, -0.5], [-3.83, 1.7, -0.12]], 0xe0432f);
+
+    /* fan M1 on the side wall */
+    var fan = new THREE.Group(); fan.position.set(-3.93, 1.7, 0); fan.rotation.y = Math.PI / 2;
+    var ring = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.06, 10, 32), new THREE.MeshStandardMaterial({ color: 0x9aa7ad, metalness: 0.5, roughness: 0.4 }));
+    fan.add(ring);
+    var vent = new THREE.Mesh(new THREE.CircleGeometry(0.54, 32), new THREE.MeshBasicMaterial({ color: 0x07100f, side: THREE.DoubleSide }));
+    vent.position.z = -0.03; fan.add(vent);
+    bladeGroup = new THREE.Group(); fan.add(bladeGroup);
+    var bladeMat = new THREE.MeshStandardMaterial({ color: 0xf2f6f7, roughness: 0.4 });
+    for (var bi = 0; bi < 4; bi++) {
+      var pv2 = new THREE.Group(); pv2.rotation.z = bi * Math.PI / 2;
+      var bl = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.46, 0.02), bladeMat);
+      bl.position.y = 0.28; bl.rotation.y = 0.55; pv2.add(bl); bladeGroup.add(pv2);
+    }
+    var hub = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.1, 16), new THREE.MeshStandardMaterial({ color: 0x2e3a3d }));
+    hub.rotation.x = Math.PI / 2; fan.add(hub);
+    var lbl3 = label('馬達 M1 風扇', 1.7); lbl3.position.set(0, 0, 0); lbl3.position.set(-3.93, 2.75, 0);
+    scene.add(fan); scene.add(lbl3);
+
+    /* air flow particles */
+    var pos = new Float32Array(airN * 3);
+    for (var ai = 0; ai < airN; ai++) {
+      airData.push({ x: -3 + Math.random() * -4, y: 1.0 + Math.random() * 1.4, z: (Math.random() - 0.5) * 1.6, v: 2.2 + Math.random() * 1.6 });
+    }
+    var airGeo = new THREE.BufferGeometry();
+    airGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    air = new THREE.Points(airGeo, new THREE.PointsMaterial({ color: 0x9fe7ff, size: 0.09, transparent: true, opacity: 0, depthWrite: false }));
+    air.frustumCulled = false; scene.add(air);
+
+    /* sun */
+    sunBall = new THREE.Mesh(new THREE.SphereGeometry(0.9, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffd37a, fog: false }));
+    sunBall.position.set(9, 10, -4); scene.add(sunBall);
+    sunGlow = new THREE.Mesh(new THREE.SphereGeometry(1.6, 24, 16), new THREE.MeshBasicMaterial({ color: 0xffb25a, transparent: true, opacity: 0.16, fog: false, depthWrite: false }));
+    sunGlow.position.copy(sunBall.position); scene.add(sunGlow);
+  }
+
+  /* ---------- camera orbit ---------- */
+  var cam = { theta: -0.7, phi: 1.12, r: 14, auto: !reduce };
+  var target = renderer ? new THREE.Vector3(0, 1.4, 0) : null;
+  function placeCamera() {
+    camera.position.set(
+      target.x + cam.r * Math.sin(cam.phi) * Math.sin(cam.theta),
+      target.y + cam.r * Math.cos(cam.phi),
+      target.z + cam.r * Math.sin(cam.phi) * Math.cos(cam.theta));
+    camera.lookAt(target);
+  }
+  var ptrs = {}, pinch = 0;
+  canvas.addEventListener('pointerdown', function (e) {
+    canvas.setPointerCapture(e.pointerId); ptrs[e.pointerId] = { x: e.clientX, y: e.clientY }; cam.auto = false;
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    var p = ptrs[e.pointerId]; if (!p) return;
+    var ids = Object.keys(ptrs);
+    if (ids.length === 2) {
+      ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+      var a = ptrs[ids[0]], b = ptrs[ids[1]];
+      var d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch) cam.r = Math.max(7, Math.min(24, cam.r * pinch / d));
+      pinch = d; return;
+    }
+    cam.theta -= (e.clientX - p.x) * 0.006;
+    cam.phi = Math.max(0.25, Math.min(1.5, cam.phi - (e.clientY - p.y) * 0.006));
+    ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+  });
+  function endPtr(e) { delete ptrs[e.pointerId]; pinch = 0; }
+  canvas.addEventListener('pointerup', endPtr);
+  canvas.addEventListener('pointercancel', endPtr);
+  canvas.addEventListener('wheel', function (e) {
+    e.preventDefault(); cam.auto = false;
+    cam.r = Math.max(7, Math.min(24, cam.r * (1 + e.deltaY * 0.001)));
+  }, { passive: false });
+
+  function resize() {
+    sizeChart();
+    if (!renderer) return;
+    var w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage); else window.addEventListener('resize', resize);
+  window.addEventListener('resize', sizeChart);
+
+  /* ---------- simulation ---------- */
+  var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+  function simulate(dt) {
+    if (S.mode === 'auto') {
+      S.temp += ((S.ambient - S.temp) * 0.05 - (S.fanOn ? 0.9 : 0)) * dt;
+    } else {
+      S.temp += (S.manual - S.temp) * Math.min(1, dt * 3);
+    }
+    if (S.temp > ON_T && !S.fanOn) S.fanOn = true;
+    else if (S.temp < OFF_T && S.fanOn) S.fanOn = false;
+    var hTarget = clamp(88 - (S.temp - 20) * 2.1 - (S.fanOn ? 4 : 0), 25, 95);
+    S.hum += (hTarget - S.hum) * dt * 0.8;
+    S.fanSpeed += ((S.fanOn ? 1 : 0) - S.fanSpeed) * Math.min(1, dt * 2.5);
+    var rate = S.temp > 30 ? 0.005 : (S.temp < 18 ? 0.004 : 0.016);
+    S.growth = Math.min(1, S.growth + rate * dt);
+    S.stress += (clamp((S.temp - 30) / 6, 0, 1) - S.stress) * Math.min(1, dt * 1.2);
+  }
+
+  var greenC, yellowC;
+  if (renderer) { greenC = new THREE.Color(0x3f9d4a); yellowC = new THREE.Color(0xb59b3a); }
+  var coolC, hotC;
+  if (renderer) { coolC = new THREE.Color(0xdff6ff); hotC = new THREE.Color(0xffa24d); }
+
+  function animate(dt) {
+    if (!renderer) return;
+    S.t += dt;
+    if (cam.auto) cam.theta = -0.7 + Math.sin(S.t * 0.25) * 0.55;
+    placeCamera();
+
+    bladeGroup.rotation.z -= S.fanSpeed * dt * 20;
+
+    var heat = clamp((S.ambient - 24) / 16, 0, 1);
+    if (S.mode === 'manual') heat = clamp((S.temp - 24) / 16, 0, 1);
+    sun.intensity = 0.7 + 0.9 * heat;
+    sun.color.setHex(0xfff0cf).lerp(new THREE.Color(0xffb36b), heat * 0.7);
+    sunBall.scale.setScalar(0.85 + heat * 0.55); sunGlow.scale.setScalar(0.9 + heat * 0.9);
+    innerLight.color.copy(coolC).lerp(hotC, clamp((S.temp - 26) / 10, 0, 1));
+
+    leafMat.color.copy(greenC).lerp(yellowC, S.stress);
+    var size = 0.5 + 0.5 * S.growth;
+    var lean = 0.03 + 0.09 * S.fanSpeed;
+    plants.forEach(function (p) {
+      p.root.scale.setScalar(size);
+      p.root.rotation.z = lean + Math.sin(S.t * 2.2 + p.phase) * 0.05 * S.fanSpeed;
+      p.leaves.forEach(function (t, i) { t.rotation.z = 0.45 - S.stress * 1.15 + Math.sin(S.t * 1.3 + p.phase + i) * 0.03; });
+      p.fruit.visible = S.growth > 0.95;
+    });
+
+    ledMat.color.setHex(S.fanOn ? 0xff8f4d : 0x3ddc84);
+    ledMat.emissive.setHex(S.fanOn ? 0xff8f4d : 0x3ddc84);
+
+    air.material.opacity = S.fanSpeed * 0.75;
+    var arr = air.geometry.attributes.position.array;
+    for (var i = 0; i < airN; i++) {
+      var a = airData[i];
+      a.x -= a.v * S.fanSpeed * dt * 1.4;
+      if (a.x < -7.5) { a.x = -1 - Math.random() * 2.5; a.y = 1.0 + Math.random() * 1.4; a.z = (Math.random() - 0.5) * 1.6; }
+      var spread = clamp((-a.x - 4) / 3.5, 0, 1);
+      arr[i * 3] = a.x; arr[i * 3 + 1] = a.y + spread * (a.y - 1.7) * 0.5; arr[i * 3 + 2] = a.z * (1 + spread * 1.6);
+    }
+    air.geometry.attributes.position.needsUpdate = true;
+  }
+
+  /* ---------- HUD ---------- */
+  var sampAcc = 0;
+  function hud() {
+    tVal.firstChild.nodeValue = S.temp.toFixed(1);
+    tVal.style.color = S.temp > ON_T ? 'var(--hot)' : (S.temp < OFF_T ? 'var(--cool)' : 'var(--fg)');
+    hVal.firstChild.nodeValue = Math.round(S.hum);
+    fVal.textContent = S.fanOn ? '運轉中' : '停止';
+    fVal.style.color = S.fanOn ? 'var(--hot)' : 'var(--muted)';
+    badge.classList.toggle('on', S.fanOn);
+    badgeText.textContent = S.fanOn ? '馬達 M1 運轉，散熱中' : '馬達 M1 停止';
+    var pct = (S.growth - 0.5) / 0.5 * 100;
+    growBar.style.width = pct.toFixed(0) + '%';
+    growBar.style.background = S.stress > 0.45 ? 'var(--hot)' : 'var(--leaf)';
+    plantStatus.textContent = pct >= 99 ? '植株已成熟並結果。'
+      : (S.stress > 0.45 ? '溫度偏高，葉片下垂，生長變慢。' : (S.temp > ON_T ? '風扇開始降溫，植株有些吃力。' : '溫度適中，植株穩定生長。'));
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000); last = now;
+    simulate(dt); animate(dt);
+    sampAcc += dt;
+    if (sampAcc >= 0.1) {
+      sampAcc = 0;
+      hist.push({ T: S.temp, f: S.fanOn }); if (hist.length > MAX) hist.shift();
+      hud(); drawChart();
+    }
+    if (renderer) renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+
+  // pre-fill history so the chart is complete on first view
+  (function seed() {
+    var t = 29.1, f = false;
+    for (var i = 0; i < 120; i++) {
+      t += ((35 - t) * 0.05 - (f ? 0.9 : 0)) * 0.1;
+      if (t > ON_T) f = true; else if (t < OFF_T) f = false;
+      hist.push({ T: t, f: f });
+    }
+    S.temp = hist[hist.length - 1].T; S.fanOn = hist[hist.length - 1].f; S.fanSpeed = S.fanOn ? 1 : 0;
+  })();
+
+  resize(); hud(); drawChart();
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body></html>
